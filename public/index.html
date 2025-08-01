@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI Realtime Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .status.connected {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        .status.recording {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .disconnect {
+            background-color: #f44336;
+        }
+        .disconnect:hover {
+            background-color: #da190b;
+        }
+        .text-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .audio-container {
+            margin: 20px 0;
+            text-align: center;
+        }
+        audio {
+            width: 100%;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OpenAI Realtime Client</h1>
+        
+        <div id="status" class="status disconnected">
+            Status: Disconnected
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div class="text-interaction">
+            <h3>Send Text Message</h3>
+            <input type="text" id="textInput" class="text-input" placeholder="Type your message here..." onkeypress="handleTextKeyPress(event)">
+            <button onclick="sendTextMessage()" id="sendTextBtn" disabled>Send Message</button>
+        </div>
+        
+        <div class="audio-container">
+            <h3>Audio Output</h3>
+            <p>Audio from the model will appear here once connected:</p>
+            <div id="audioContainer"></div>
+        </div>
+        
+        <div class="log-container">
+            <h3>Event Log</h3>
+            <div id="log" class="log"></div>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+    </div>
+
+    <script src="client.js"></script>
+    <script>
+        let client = null;
+        let statusEl = document.getElementById('status');
+        let connectBtn = document.getElementById('connectBtn');
+        let disconnectBtn = document.getElementById('disconnectBtn');
+        let sendTextBtn = document.getElementById('sendTextBtn');
+        let logEl = document.getElementById('log');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.innerHTML += `[${timestamp}] ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateStatus(status, isRecording = false) {
+            statusEl.className = `status ${status}`;
+            if (isRecording) {
+                statusEl.textContent = 'Status: Connected (Recording...)';
+                statusEl.className = 'status recording';
+            } else {
+                statusEl.textContent = `Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+            }
+        }
+        
+        async function connect() {
+            try {
+                connectBtn.disabled = true;
+                log('Initializing OpenAI Realtime client...');
+                
+                client = new OpenAIRealtimeClient();
+                
+                client.on('connected', () => {
+                    updateStatus('connected');
+                    disconnectBtn.disabled = false;
+                    sendTextBtn.disabled = false;
+                    log('✅ Connected to OpenAI Realtime API');
+                });
+                
+                client.on('disconnected', () => {
+                    updateStatus('disconnected');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    sendTextBtn.disabled = true;
+                    log('❌ Disconnected from OpenAI Realtime API');
+                });
+                
+                client.on('speech.started', () => {
+                    updateStatus('connected', true);
+                    log('🎤 Speech started');
+                });
+                
+                client.on('speech.stopped', () => {
+                    updateStatus('connected', false);
+                    log('🔇 Speech stopped');
+                });
+                
+                client.on('response.text.delta', (delta) => {
+                    log(`💬 Text: ${delta}`);
+                });
+                
+                client.on('response.done', (response) => {
+                    log('✨ Response completed');
+                });
+                
+                client.on('error', (error) => {
+                    log(`❌ Error: ${error.message}`);
+                });
+                
+                await client.init();
+                
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`);
+                connectBtn.disabled = false;
+                updateStatus('disconnected');
+            }
+        }
+        
+        function disconnect() {
+            if (client) {
+                client.disconnect();
+                client = null;
+            }
+        }
+        
+        function sendTextMessage() {
+            const textInput = document.getElementById('textInput');
+            const message = textInput.value.trim();
+            
+            if (!message || !client) return;
+            
+            log(`📤 Sending: ${message}`);
+            client.sendTextMessage(message);
+            textInput.value = '';
+        }
+        
+        function handleTextKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendTextMessage();
+            }
+        }
+        
+        function clearLog() {
+            logEl.innerHTML = '';
+        }
+        
+        log('🚀 OpenAI Realtime Client loaded. Click Connect to start.');
+    </script>
+</body>
+</html>
